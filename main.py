@@ -1,152 +1,160 @@
-import pygame, sys, time
+from html import entities
+import pygame, sys, os, time, random
 
-# Window properties' constant
-WIDTH = 1200
-HEIGHT = 800
-FRAMERATE = 60
-LANE_HEIGHT = 60
-LANES_NUMBERS = 5
-LANE_OUTLINE_OFFSET = 0.1
-UPPER_OFFSET = (HEIGHT - LANE_HEIGHT * LANES_NUMBERS) / 2
-LOWER_OFFSET = (HEIGHT + LANE_HEIGHT * LANES_NUMBERS) / 2
 
-# Entity's property
-ENTITY_WIDTH = 30
-
-# Initializing window
+# Pygame initializations
 pygame.init()
+pygame.font.init()
+
+# Window initializations
+WIDTH, HEIGHT = 1200, 800
 WINDOW = pygame.display.set_mode((WIDTH, HEIGHT))
 
-# Colors' constant
-WHITE = (255, 255, 255)
-LIGHT_GRAY = (192, 192, 192)
-GRAY = (128, 128, 128)
-DARK_GRAY = (64, 64, 64)
-BLACK = (0, 0, 0)
+# Lanes' constants
+LANES_AMOUNT = 5
+LANE_HEIGHT = 60
 
-# Fonts' constant
-FONT_PATH = 'assets/font.otf'
-FONT = pygame.font.Font(FONT_PATH, 24)
-FONT_MEDIUM = pygame.font.Font(FONT_PATH, 18)
-FONT_SMALL = pygame.font.Font(FONT_PATH, 12)
+# Colors' constants
+BLACK = (0, 0, 0)
+DARK_GRAY = (64, 64, 64)
+GRAY = (128, 128, 128)
+LIGHT_GRAY = (192, 192, 192)
+WHITE = (255, 255, 255)
+
+# Fonts
+FONT = pygame.font.Font(os.path.join('assets', 'font.otf'), 24)
+FONT_MEDIUM = pygame.font.Font(os.path.join('assets', 'font.otf'), 18)
+FONT_SMALL = pygame.font.Font(os.path.join('assets', 'font.otf'), 12)
+
+# Display initializations
+CLOCK = pygame.time.Clock()
+FRAMERATE = 60
+
+# Entity constants
+ENTITY_WIDTH = 30
+
+
+def get_upper_offset(index=0) -> float:
+    return (HEIGHT - LANE_HEIGHT * LANES_AMOUNT) / 2 + LANE_HEIGHT * index
+
+
+def get_lower_offset() -> float:
+    return (HEIGHT + LANE_HEIGHT * LANES_AMOUNT) / 2
+
+
+def render_center(font: pygame.font.Font, str: str, color: tuple[int, int, int], x: float, y: float) -> None:
+    texture = font.render(str, True, color)
+    WINDOW.blit(texture, (x - texture.get_width() / 2, y))
 
 
 class Lane:
-    
+
     lanes = []
 
-    def __init__(self, lane):
-        self.lane = lane
+    def __init__(self, index) -> None:
+        self.index = index
+        self.entities = []
         Lane.lanes.append(self)
 
-    def render_all():
-        # Render the lanes
-        for lane in Lane.lanes:
-            lane.render()
+    def render(self, dt) -> None:
+        # Render lanes
+        if (pygame.mouse.get_pos()[1] - get_upper_offset(self.index)) // LANE_HEIGHT == 0:
+            pygame.draw.rect(WINDOW, LIGHT_GRAY, pygame.Rect(0, get_upper_offset(self.index), WIDTH, LANE_HEIGHT)) # Hovering effect
+        pygame.draw.rect(WINDOW, BLACK, pygame.Rect(0, get_upper_offset(self.index), WIDTH, LANE_HEIGHT + 1), 1)
 
-        # Render the additional two lines to separate the visuals from the lanes
-        y = UPPER_OFFSET - LANE_HEIGHT * LANE_OUTLINE_OFFSET
-        pygame.draw.line(WINDOW, WHITE, (0, y), (WIDTH, y))
-        y = LOWER_OFFSET + LANE_HEIGHT * LANE_OUTLINE_OFFSET
-        pygame.draw.line(WINDOW, WHITE, (0, y), (WIDTH, y))
+        # Render entities
+        for entity in self.entities:
+            entity.render(dt)
 
-    def render(self):
-        # Render the hovering effect if hovered
-        if (pygame.mouse.get_pos()[1] - UPPER_OFFSET) // LANE_HEIGHT == self.lane:
-            pygame.draw.rect(WINDOW, DARK_GRAY, pygame.Rect(0, UPPER_OFFSET + self.lane * LANE_HEIGHT, WIDTH, LANE_HEIGHT))
-        
-        # Render the upper offset
-        y = UPPER_OFFSET + self.lane * LANE_HEIGHT
-        pygame.draw.line(WINDOW, WHITE, (0, y), (WIDTH, y))
-        pygame.draw.line(WINDOW, WHITE, (0, y + LANE_HEIGHT), (WIDTH, y + LANE_HEIGHT))
+        if random.random() < dt:
+            self.entities.append(ExampleEntity(self, WIDTH))
 
+    def handle_click(self, event: pygame.event.Event) -> bool:
+        if (event.pos[1] - get_upper_offset(self.index)) // 64 == 0:
+            self.entities.append(ExampleEntity(self, -ENTITY_WIDTH))
+            return True
+        return False
 
+    
 class Entity:
 
-    entities = []
-
-    def __init__(self, lane):
-        self.health = 100
-        self.max_health = 100
+    def __init__(self, lane: Lane, x: int, movement_speed: int, health: int, attack: int) -> None:
         self.lane = lane
-        self.x = 0
-        Entity.entities.append(self)
+        self.x = x
+        self.dx = 1 if x == -ENTITY_WIDTH else -1
+        self.movement_speed = movement_speed
+        self.health = health
+        self.max_health = health
+        self.attack = attack
 
-    def render_all():
-        for entity in Entity.entities:
-            entity.render()
+    def render(self, dt) -> None:
+        # Updates
+        if self.health <= 0:
+            self.lane.entities.remove(self)
+            return
+        b = True
+        for otherEntity in self.lane.entities:
+            if otherEntity is self or otherEntity.dx == self.dx:
+                continue
+            if pygame.Rect(self.x, get_upper_offset(self.lane.index) + (LANE_HEIGHT - ENTITY_WIDTH) / 2, ENTITY_WIDTH, ENTITY_WIDTH).colliderect(pygame.Rect(otherEntity.x, get_upper_offset(self.lane.index) + (LANE_HEIGHT - ENTITY_WIDTH) / 2, ENTITY_WIDTH, ENTITY_WIDTH)):
+                b = False
+                otherEntity.health -= self.attack * dt
+                break
+        if b:
+            self.x += self.dx * self.movement_speed * dt
+        if self.x < -ENTITY_WIDTH or self.x > WIDTH:
+            self.lane.entities.remove(self)
 
-    def tick_all(dt):
-        for entity in Entity.entities:
-            entity.tick(dt)
-        
-    def render(self):
-        pygame.draw.rect(WINDOW, WHITE, pygame.Rect(self.x - ENTITY_WIDTH, UPPER_OFFSET + LANE_HEIGHT * self.lane + (LANE_HEIGHT - ENTITY_WIDTH) / 2, ENTITY_WIDTH, ENTITY_WIDTH))
-        self.render_health_bar()
-
-    def tick(self, dt):
-        self.x += dt * 100
-        self.health -= dt * 10 # purpose: test the render of the health bar
-
-    def render_health_bar(self):
-        y = UPPER_OFFSET + LANE_HEIGHT * self.lane + (LANE_HEIGHT - ENTITY_WIDTH) / 2
-        y = (UPPER_OFFSET + LANE_HEIGHT * self.lane + y) / 2
-        pygame.draw.line(WINDOW, WHITE, (self.x - ENTITY_WIDTH, y), (self.x - ENTITY_WIDTH + ENTITY_WIDTH * self.health / self.max_health, y))
-        pass
-
-
-def get_lane(y):
-    return (y - UPPER_OFFSET) // LANE_HEIGHT
+        # Render
+        pygame.draw.rect(WINDOW, DARK_GRAY, pygame.Rect(self.x, get_upper_offset(self.lane.index) + (LANE_HEIGHT - ENTITY_WIDTH) / 2, ENTITY_WIDTH, ENTITY_WIDTH))
+        pygame.draw.rect(WINDOW, BLACK, pygame.Rect(self.x, get_upper_offset(self.lane.index) + (LANE_HEIGHT - ENTITY_WIDTH) / 2, ENTITY_WIDTH, ENTITY_WIDTH), 1)
+        pygame.draw.rect(WINDOW, DARK_GRAY, pygame.Rect(self.x, get_upper_offset(self.lane.index) + (LANE_HEIGHT - ENTITY_WIDTH) / 2 / 3, ENTITY_WIDTH, (LANE_HEIGHT - ENTITY_WIDTH) / 2 / 3), 1)
+        pygame.draw.rect(WINDOW, BLACK, pygame.Rect(self.x, get_upper_offset(self.lane.index) + (LANE_HEIGHT - ENTITY_WIDTH) / 2 / 3, ENTITY_WIDTH * self.health / self.max_health, (LANE_HEIGHT - ENTITY_WIDTH) / 2 / 3))
 
 
-def main():
-    # Setting window's properties
-    pygame.display.set_caption('Blocky')
-    pygame.display.set_icon(pygame.image.load('assets/icon.png'))
+class ExampleEntity(Entity):
 
-    # Variables for refreshing display
-    clock = pygame.time.Clock()
-    last_time = time.time()
+    def __init__(self, lane: Lane, x: int) -> None:
+        super().__init__(lane, x, 200, 100, 50)
+
+
+# Create lanes
+for i in range(LANES_AMOUNT):
+    Lane(i)
+
+# Variables
+last_time = time.time()
+
+# Game loop
+while True:
+    for event in pygame.event.get():
+
+        # Quit game
+        if event.type == pygame.QUIT:
+            pygame.quit()
+            sys.exit()
     
-    # Creating lanes
-    for i in range(LANES_NUMBERS):
-        Lane(i)
+        # When mouse click
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            for lane in Lane.lanes:
+                if lane.handle_click(event):
+                    break
+    
+    # Render background
+    WINDOW.fill(WHITE)
 
-    # The game loop
-    while True:
-        # Events
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
-            elif event.type == pygame.MOUSEBUTTONDOWN:
-                Entity(get_lane(event.pos[1]))
+    # Render title and subtitles
+    render_center(FONT, 'Blocky', BLACK, WIDTH / 2, 48)
+    render_center(FONT_MEDIUM, 'A block game', DARK_GRAY, WIDTH / 2, 48 + 24 + 12)
 
-        current_time = time.time()
-        dt = current_time - last_time
-        last_time = current_time
-        
-        # Background
-        WINDOW.fill(BLACK)
+    current_time = time.time()
+    dt = current_time - last_time
+    last_time = current_time
 
-        # Title
-        text = FONT.render('Blocky', True, WHITE)
-        WINDOW.blit(text, ((1200 - text.get_width()) / 2, 48))
-
-        # Subtitle
-        text = FONT_MEDIUM.render('An experimental game made by Dean', True, GRAY)
-        WINDOW.blit(text, ((1200 - text.get_width()) / 2, 48 + 24 + 16))
-
-        # Rendering lanes' line
-        Lane.render_all()
-
-        # Tick and render entities
-        Entity.tick_all(dt)
-        Entity.render_all()
-
-        # Refresh display
-        pygame.display.update()
-        clock.tick(FRAMERATE)
-
-
-main()
+    # Render lanes
+    for lane in Lane.lanes:
+        lane.render(dt)
+    
+    # Update display
+    pygame.display.update()
+    CLOCK.tick(FRAMERATE)
